@@ -1,0 +1,68 @@
+#!/bin/bash
+# ============================================
+# ISP
+# ============================================
+
+HOSTNAME="isp.au-team.irpo"
+TIMEZONE="Asia/Krasnoyarsk"
+
+# Иinterface nat
+WAN_IFACE="enp0s3"
+
+# interface HQ-RTR
+HQ_IFACE="enp0s8"
+HQ_IP="172.16.1.1/28"
+
+# interface BR-RTR
+BR_IFACE="enp0s9"
+BR_IP="172.16.2.1/28"
+
+# ============================================
+
+echo "=== update ==="
+apt-get update
+
+echo "=== Time zone ==="
+timedatectl set-timezone "$TIMEZONE"
+
+echo "=== hostname ==="
+hostnamectl set-hostname "$HOSTNAME"
+echo "HOSTNAME=$HOSTNAME" > /etc/sysconfig/network
+
+echo "=== ip forward ==="
+# Проверяем есть ли уже строка, если нет - добавляем
+grep -q "net.ipv4.ip_forward" /etc/net/sysctl.conf \
+  && sed -i 's/.*net.ipv4.ip_forward.*/net.ipv4.ip_forward = 1/' /etc/net/sysctl.conf \
+  || echo "net.ipv4.ip_forward = 1" >> /etc/net/sysctl.conf
+
+echo "=== config interface $HQ_IFACE ==="
+mkdir -p /etc/net/ifaces/$HQ_IFACE
+
+cat > /etc/net/ifaces/$HQ_IFACE/options <<EOF
+TYPE=eth
+BOOTPROTO=static
+EOF
+
+echo "$HQ_IP" > /etc/net/ifaces/$HQ_IFACE/ipv4address
+
+echo "=== config interface $BR_IFACE ==="
+mkdir -p /etc/net/ifaces/$BR_IFACE
+
+cat > /etc/net/ifaces/$BR_IFACE/options <<EOF
+TYPE=eth
+BOOTPROTO=static
+EOF
+
+echo "$BR_IP" > /etc/net/ifaces/$BR_IFACE/ipv4address
+
+echo "=== rest net ==="
+systemctl restart network
+ip -c -br a
+ip -c -br r
+
+echo "== NAT ==="
+iptables -t nat -A POSTROUTING -o "$WAN_IFACE" -j MASQUERADE
+iptables-save >> /etc/sysconfig/iptables
+systemctl enable --now iptables
+
+echo "=== ISP cong ! ==="
